@@ -422,4 +422,4 @@ typedef enum {AND, ADD, ASHL, ASHR, BEQ, BGE, BGEU, BGT, BGTU, BLE, BLEU,
  * as a 32-bit value. */
 #define I_ZEXS          0x1300
 #define I_ZEXS_A        0x00f0
-#define I_ZEXS_b        0x000f
+#define I_ZEXS_B        0x000f
