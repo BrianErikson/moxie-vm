@@ -42,6 +42,8 @@ int mox_exec();
  */
 int mox_reset();
 
+void mox_free();
+
 /** Logical and. Performs a logical and operation on
  * the contents of registers $rA and $rB and stores
  * the result in $rA.*/
