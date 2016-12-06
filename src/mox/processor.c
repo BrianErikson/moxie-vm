@@ -1,10 +1,11 @@
 #include <stdio.h>
 #include <malloc.h>
 #include <string.h>
+#include <errno.h>
 #include "processor.h"
 #include "opcodes.h"
+#include "paging.h"
 
-#define MOX_ERR_UNSUPPORTED 0x01
 
 Registers *registers;
 InstructionSet *instructionSet;
@@ -13,9 +14,13 @@ InstructionSet *instructionSet;
  * Must be followed by mox_free() when done
  * @return
  */
-int mox_init() {
+unsigned char mox_init() {
     registers = malloc(sizeof(Registers));
     instructionSet = malloc(sizeof(instructionSet));
+
+    memset(registers, 0x0, sizeof(Registers));
+    memset(instructionSet, 0x0, sizeof(InstructionSet));
+
     return 0;
 }
 
@@ -31,7 +36,7 @@ void mox_free(){
  * @param size
  * @return 0 on success, MOX_ERR code on ret > 0
  */
-int mox_load(unsigned short *instructions, unsigned int size) {
+unsigned char mox_load(unsigned short *instructions, unsigned int size) {
     unsigned short *_instructions = malloc(sizeof(unsigned short) * size);
     memcpy(_instructions, instructions, sizeof(unsigned short) * size);
     instructionSet->instructions = _instructions;
@@ -40,7 +45,7 @@ int mox_load(unsigned short *instructions, unsigned int size) {
     return 0;
 }
 
-int mox_exec() {int retval = -1;
+unsigned char mox_exec() {int retval = -1;
     for (int i = 0; i < instructionSet->size; i++) {
         unsigned short instr = instructionSet->instructions[i];
         if ((instr & I_ADD) == I_ADD) {
@@ -357,278 +362,387 @@ int mox_exec() {int retval = -1;
     return retval;
 }
 
-int mox_reset() {
-    return MOX_ERR_UNSUPPORTED;
+static Register* getRegister(unsigned char virtualAddr,
+                             unsigned char *errFlags) {
+    for (int i = 0; i < MOX_REG_SIZE; i++) {
+        Register *reg = &registers->r[i];
+        if (reg->address == NULL) {
+            reg->address = virtualAddr;
+            *errFlags = 0;
+            return reg;
+        }
+        else if (reg->address == virtualAddr) {
+            *errFlags = 0;
+            return reg;
+        }
+    }
+
+    *errFlags = MOX_ERR_REGISTER_NOT_FOUND | MOX_ERR_REGISTER_NO_SPACE;
+    return NULL;
 }
 
-int mox_and(unsigned char a, unsigned char b) {
-    return MOX_ERR_UNSUPPORTED;
+static unsigned char setRegister(unsigned char virtualAddr,
+                                 unsigned long data) {
+    unsigned char errFlags;
+    Register *reg = getRegister(virtualAddr, &errFlags);
+    if (reg == NULL) {
+        return errFlags;
+    }
+
+    reg->data = data;
+    return 0;
 }
 
-int mox_add(unsigned char a, unsigned char b) {
-    return MOX_ERR_UNSUPPORTED;
+
+/**
+ * Resets the processor registers. Does not clear instruction set
+ * @Returns
+ */
+unsigned char mox_reset() {
+    memset(registers, 0x0, sizeof(Registers));
+    return 0;
 }
 
-int mox_ashl(unsigned char a, unsigned char b) {
-    return MOX_ERR_UNSUPPORTED;
+typedef struct RegisterPair_s {
+    Register* a;
+    Register* b;
+} RegisterPair;
+RegisterPair getRegisterPair(unsigned char virtualAddrA,
+                             unsigned char virtualAddrB,
+                             unsigned char *errFlags) {
+    Register *aReg = getRegister(virtualAddrA, errFlags);
+    if (aReg == NULL) {
+        return NULL;
+    }
+    Register *bReg = getRegister(virtualAddrB, errFlags);
+    if (bReg == NULL) {
+        return NULL;
+    }
+
+    RegisterPair pair;
+    pair.a = aReg;
+    pair.b = bReg;
+    return pair;
 }
 
-int mox_ashr(unsigned char a, unsigned char b) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char errFlags = 0x0;
+unsigned char mox_and(unsigned char a, unsigned char b) {
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = pair.a->data & pair.b->data;
+    return 0;
 }
 
-int mox_beq(unsigned short v) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_add(unsigned char a, unsigned char b) {
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = pair.a->data + pair.b->data;
+    return 0;
 }
 
-int mox_bge(unsigned short v) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_ashl(unsigned char a, unsigned char b) {
+    // TODO: ASHL vs LSHL?
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = pair.a->data << pair.b->data;
+    return 0;
 }
 
-int mox_bgeu(unsigned short v) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_ashr(unsigned char a, unsigned char b) {
+    // TODO: ASHR vs LSHR?
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = pair.a->data >> pair.b->data;
+    return 0;
 }
 
-int mox_bgt(unsigned short v) {
+unsigned char mox_beq(unsigned short v) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_bgtu(unsigned short v) {
+unsigned char mox_bge(unsigned short v) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_ble(unsigned short v) {
+unsigned char mox_bgeu(unsigned short v) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_bleu(unsigned short v) {
+unsigned char mox_bgt(unsigned short v) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_blt(unsigned short v) {
+unsigned char mox_bgtu(unsigned short v) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_bltu(unsigned short v) {
+unsigned char mox_ble(unsigned short v) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_bne(unsigned short v) {
+unsigned char mox_bleu(unsigned short v) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_brk() {
+unsigned char mox_blt(unsigned short v) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_cmp(unsigned char a, unsigned char b) {
+unsigned char mox_bltu(unsigned short v) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_dec(unsigned char a, unsigned short i) {
+unsigned char mox_bne(unsigned short v) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_div(unsigned char a, unsigned char b) {
+unsigned char mox_brk() {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_gsr(unsigned char a, unsigned char s) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_cmp(unsigned char a, unsigned char b) {
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    registers->s[MOX_SREG_STATUS].data =
+            (char) (pair.a->data == pair.b->data);
+    return 0;
 }
 
-int mox_inc(unsigned char a, unsigned short i) {
+unsigned char mox_dec(unsigned char a, unsigned short i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_jmp(unsigned char a) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_div(unsigned char a, unsigned char b) {
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = pair.a->data / pair.b->data;
+    // TODO: Error codes for div by 0 or div by INT_MIN
+    return 0;
 }
 
-int mox_jmpa(unsigned long i) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_gsr(unsigned char a, unsigned char s) {
+    if (s > MOX_SREG_SIZE) return MOX_ERR_REGISTER_NOT_FOUND;
+    Register *aReg = getRegister(a, &errFlags);
+    if (aReg == NULL) return errFlags;
+
+    aReg->data = registers->s[s].data;
+    return 0;
 }
 
-int mox_jsr(unsigned char a) {
+unsigned char mox_inc(unsigned char a, unsigned short i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_jsra(unsigned long i) {
+unsigned char mox_jmp(unsigned char a) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_ldb(unsigned char a, unsigned char b) {
+unsigned char mox_jmpa(unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_ldl(unsigned char a, unsigned char b) {
+unsigned char mox_jsr(unsigned char a) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_lds(unsigned char a, unsigned char b) {
+unsigned char mox_jsra(unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_ldab(unsigned char a, unsigned long i) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_ldb(unsigned char a, unsigned char b) {
+    return mox_ldl(a, b);
 }
 
-int mox_ldal(unsigned char a, unsigned long i) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_ldl(unsigned char a, unsigned char b) {
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = pair.b->data;
+    return 0;
 }
 
-int mox_ldas(unsigned char a, unsigned long i) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_lds(unsigned char a, unsigned char b) {
+    return mox_ldl(a, b);
 }
 
-int mox_ldil(unsigned char a, unsigned long i) {
+unsigned char mox_ldab(unsigned char a, unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_ldib(unsigned char a, unsigned long i) {
+unsigned char mox_ldal(unsigned char a, unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_ldis(unsigned char a, unsigned long i) {
+unsigned char mox_ldas(unsigned char a, unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_ldob(unsigned char a, unsigned char b, unsigned short i) {
+unsigned char mox_ldil(unsigned char a, unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_ldol(unsigned char a, unsigned char b, unsigned short i) {
+unsigned char mox_ldib(unsigned char a, unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_ldos(unsigned char a, unsigned char b, unsigned short i) {
+unsigned char mox_ldis(unsigned char a, unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_lshr(unsigned char a, unsigned char b) {
+unsigned char mox_ldob(unsigned char a, unsigned char b, unsigned short i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_mod(unsigned char a, unsigned char b) {
+unsigned char mox_ldol(unsigned char a, unsigned char b, unsigned short i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_mov(unsigned char a, unsigned char b) {
+unsigned char mox_ldos(unsigned char a, unsigned char b, unsigned short i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_mul(unsigned char a, unsigned char b) {
+unsigned char mox_lshr(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_mulx(unsigned char a, unsigned char b) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_mod(unsigned char a, unsigned char b) {
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = pair.a->data % pair.b->data;
+    return 0;
 }
 
-int mox_neg(unsigned char a, unsigned char b) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_mov(unsigned char a, unsigned char b) {
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = pair.b->data;
+    return 0;
 }
 
-int mox_nop() {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_mul(unsigned char a, unsigned char b) {
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = pair.a->data * pair.b->data;
+    return 0;
 }
 
-int mox_not(unsigned char a, unsigned char b) {
-    return MOX_ERR_UNSUPPORTED;
+unsigned char mox_mulx(unsigned char a, unsigned char b) {
+    // TODO: Might need to implement?
+    return mox_mul(a, b);
+}
+
+unsigned char mox_neg(unsigned char a, unsigned char b) {
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = -pair.b->data;
+    return 0;
 }
 
-int mox_or(unsigned char a, unsigned char b) {
+unsigned char mox_nop() {
     return MOX_ERR_UNSUPPORTED;
+}
+
+unsigned char mox_not(unsigned char a, unsigned char b) {
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = pair.a->data != pair.b->data;
+    return 0;
+}
+
+unsigned char mox_or(unsigned char a, unsigned char b) {
+    RegisterPair pair = getRegisterPair(a, b, &errFlags);
+    if (errFlags != 0x0) return errFlags;
+    pair.a->data = pair.a->data || pair.b->data;
+    return 0;
 }
 
-int mox_pop(unsigned char a, unsigned char b) {
+unsigned char mox_pop(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_push(unsigned char a, unsigned char b) {
+unsigned char mox_push(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_ret() {
+unsigned char mox_ret() {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_sexb(unsigned char a, unsigned char b) {
+unsigned char mox_sexb(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_sexs(unsigned char a, unsigned char b) {
+unsigned char mox_sexs(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_ssr(unsigned char a, unsigned char s) {
+unsigned char mox_ssr(unsigned char a, unsigned char s) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_stb(unsigned char a, unsigned char b) {
+unsigned char mox_stb(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_stl(unsigned char a, unsigned char b) {
+unsigned char mox_stl(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_sts(unsigned char a, unsigned char b) {
+unsigned char mox_sts(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_stab(unsigned char a, unsigned long i) {
+unsigned char mox_stab(unsigned char a, unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_stal(unsigned char a, unsigned long i) {
+unsigned char mox_stal(unsigned char a, unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_stas(unsigned char a, unsigned long i) {
+unsigned char mox_stas(unsigned char a, unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_stob(unsigned char a, unsigned char b, unsigned short i) {
+unsigned char mox_stob(unsigned char a, unsigned char b, unsigned short i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_stol(unsigned char a, unsigned char b, unsigned short i) {
+unsigned char mox_stol(unsigned char a, unsigned char b, unsigned short i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_stos(unsigned char a, unsigned char b, unsigned short i) {
+unsigned char mox_stos(unsigned char a, unsigned char b, unsigned short i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_sub(unsigned char a, unsigned char b) {
+unsigned char mox_sub(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_swi(unsigned long i) {
+unsigned char mox_swi(unsigned long i) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_udiv(unsigned char a, unsigned char b) {
+unsigned char mox_udiv(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_umod(unsigned char a, unsigned char b) {
+unsigned char mox_umod(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_umulx(unsigned char a, unsigned char b) {
+unsigned char mox_umulx(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_xor(unsigned char a, unsigned char b) {
+unsigned char mox_xor(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_zexb(unsigned char a, unsigned char b) {
+unsigned char mox_zexb(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
 
-int mox_zexs(unsigned char a, unsigned char b) {
+unsigned char mox_zexs(unsigned char a, unsigned char b) {
     return MOX_ERR_UNSUPPORTED;
 }
